@@ -1,0 +1,366 @@
+---
+title: "Copenhagen newspapers vs. Jutland newspapers in 1848"
+author: "August Prahl Lylloff"
+date: "2026-05-24"
+output: html_document
+---
+
+
+#Project 
+In this project, i will analysis how newspapers from Copenhagen represented the First Schleswig war in 1848 in contrast to newspapers from Jutland
+
+The data is collected from the Royal Danish Library's digital newspaper archive, Mediestream. 
+I will be preforming: text mining, stopword filtering, sentiment analysis and visualization of sentiment.  
+
+This approach allows me to compare regional differences in how conflict was framed in the press.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Loading necessary packages
+These packages provide the necessary tools needed for text cleaning, word analysis, visualisations and sentiment scoring.
+```{r}
+library(tidyverse)
+library(tidytext)
+library(ggwordcloud)
+library(Sentida)
+library(purrr)
+
+```
+
+#Sentida
+I have chosen to use the Danish sentida library to make my sentiment analysis. This sentida library is provided by Lars Kjartan Bacher Svendsen, Jacob Aarup Dalsgaard and Gustav Aarup Lauridsen.
+
+Reference: https://github.com/guscode/sentida 
+
+I have followed the instructions provided in the Sentida Github-reporsitory to download the library 
+```{r}
+if(!require("devtools")) install.packages("devtools")
+
+devtools::install_github("Guscode/Sentida")
+
+library(Sentida)
+```
+
+
+#API
+The API links retrieve all newspaper pages from 1848 contaning the word krig ("war") from Copenhagen and Haderslev. This will help ensure that both datasets are comparable and based on the same search.
+
+I used this API from the Swagger UI, link: http://labs.statsbiblioteket.dk/labsapi/api//api-docs?url=/labsapi/api/openapi.yaml#/labsapi/exportFields
+
+```{r}
+link_cph <- "https://labs.statsbiblioteket.dk/labsapi/api/aviser/export/fields?query=krig%2A%20AND%20py%3A1848%20AND%20lplace%3AK%C3%B8benhavn&fields=link&fields=recordID&fields=timestamp&fields=pwa&fields=cer&fields=fulltext_org&fields=pageUUID&fields=editionUUID&fields=titleUUID&fields=editionId&fields=familyId&fields=newspaper_page&fields=newspaper_edition&fields=lplace&fields=location_name&fields=location_coordinates&max=10000&structure=header&structure=content&format=CSV"
+
+link_had <- "https://labs.statsbiblioteket.dk/labsapi/api/aviser/export/fields?query=krig%2A%20AND%20py%3A1848%20AND%20lplace%3AHaderslev&fields=link&fields=recordID&fields=timestamp&fields=pwa&fields=cer&fields=fulltext_org&fields=pageUUID&fields=editionUUID&fields=titleUUID&fields=editionId&fields=familyId&fields=newspaper_page&fields=newspaper_edition&fields=lplace&fields=location_name&fields=location_coordinates&max=1000&structure=header&structure=content&format=CSV"
+
+```
+Loading the data into R 
+```{r}
+cph_1848 <- read.csv(link_cph)
+had_1848 <- read.csv(link_had)
+
+```
+
+#Tidying
+unnest_tokens() converts each article into individual words, which is necessary: counting word frequencies, removing stopwords and perfroming sentiment analysis.
+```{r}
+tidy_cph_1848 <- cph_1848 %>% 
+  unnest_tokens(word, fulltext_org)
+
+tidy_had_1848 <- had_1848 %>% 
+  unnest_tokens(word, fulltext_org)
+```
+
+#Stopwordlist
+Because OCR systems can misinterpret older Danish language from the 19th century, I have used this stopwordlist provided by Max Odsbjerg 
+
+Max Odsbjerg stopwordlist: https://gist.githubusercontent.com/maxodsbjerg/1537cf14c3d46b3d30caa5d99f8758e9/raw/9f044a38505334f035be111c9a3f654a24418f6d/stopord_18_clean.csv 
+
+With the stopord_1800 (stopwordlist) there were still some words or abbreviations included that needed to be sorted.I therefore made a extra stopwordlist for the newspapers 
+
+```{r}
+stopord_1800 <- read_csv("https://gist.githubusercontent.com/maxodsbjerg/1537cf14c3d46b3d30caa5d99f8758e9/raw/9f044a38505334f035be111c9a3f654a24418f6d/stopord_18_clean.csv")
+
+stopword_extra <- tibble(word=c("sit", "rbd", "derfor", "thi", "hvis", "sine","fta","rg"))
+
+```
+#Top100 CPH
+This identifies the dominant themes in the coverage in 1848 of the war in the Copenhagen newspapers 
+```{r}
+top100_cph_1848 <- tidy_cph_1848 %>% 
+  anti_join(stopord_1800) %>% 
+  anti_join(stopword_extra) %>% 
+  count(word, sort = TRUE) %>% 
+  slice(1:100)
+```
+
+#Wordcloud - CPH
+Visualises the most frequent words in Copenhagen.
+```{r}
+ggplot(top100_cph_1848, aes(label = word, size = n)) +
+  geom_text_wordcloud_area(aes(color = n), shape = "star") +
+  scale_size_area(max_size = 12) +
+  scale_color_gradientn(colors = c("blue","gold","red")) +
+  theme_minimal()
+```
+
+#Top 100 - Haderslev
+This identifies the dominant themes in the coverage in 1848 of the war in the Jutland newspapers with focus on Haderslev 
+```{r}
+top100_had_1848 <- tidy_had_1848 %>% 
+  anti_join(stopord_1800) %>% 
+  anti_join(stopword_extra) %>% 
+  count(word, sort = TRUE) %>% 
+  slice(1:100)
+```
+#Wordcloud - Haderslev
+Visualises the most frequent words in Haderslev.
+```{r}
+ggplot(top100_had_1848, aes(label = word, size = n)) +
+  geom_text_wordcloud_area(aes(color = n), shape = "star") +
+  scale_size_area(max_size = 12) +
+  scale_color_gradientn(colors = c("blue","gold","red")) +
+  theme_minimal()
+
+```
+#Combined top 100 Copenhagen and Haderslev 
+This shows the shared and unique vocabularies of the newspapers 
+```{r}
+top100_begge_1848 <- full_join(
+  top100_cph_1848 %>% rename(n_cph = n),
+  top100_had_1848 %>% rename(n_had = n),
+  by = "word"
+) %>% 
+  replace_na(list(n_cph = 0, n_had = 0)) %>% 
+  arrange(desc(n_cph + n_had))
+
+```
+
+#Comparison between CPH and HAD
+This visualises words used in both cities, unique words to CPH and unique words to Haderslev 
+```{r}
+compare_words_1848 <- top100_begge_1848 %>% 
+  mutate(category = case_when(
+    n_cph > 0 & n_had > 0 ~ "Both cities",
+    n_cph > 0 & n_had == 0 ~ "Copenhagen only",
+    n_had > 0 & n_cph == 0 ~ "Haderslev only"
+  ))
+
+```
+Continuation 
+```{r}
+ggplot(compare_words_1848, aes(label = word, size = n_cph + n_had, color = category)) +
+  geom_text_wordcloud_area(shape = "circle") +
+  scale_size_area(max_size = 12) +
+  scale_color_manual(values = c(
+    "Both cities" = "red",
+    "Copenhagen only" = "blue",
+    "Haderslev only" = "green"
+  )) +
+  theme_minimal()
+```
+
+
+#Fulltext per article 
+This prepares the text for sentiment analysis
+```{r}
+fulltext_cph <- tidy_cph_1848 %>% 
+  anti_join(stopord_1800) %>% 
+  anti_join(stopword_extra) %>% 
+  group_by(recordID) %>% 
+  summarise(fulltext_stopwords = paste(word, collapse=" "))
+
+fulltext_had <- tidy_had_1848 %>% 
+  anti_join(stopord_1800) %>% 
+  anti_join(stopword_extra) %>% 
+  group_by(recordID) %>% 
+  summarise(fulltext_stopwords = paste(word, collapse=" "))
+```
+
+#Fulltext per newspaper
+Thsi allows me to calculate average sentiment per newspaper 
+```{r}
+fulltext_cph_family <- tidy_cph_1848 %>%
+  anti_join(stopord_1800) %>%
+  anti_join(stopword_extra) %>% 
+  group_by(familyId) %>% 
+  summarise(fulltext_org = paste(word, collapse=" "))
+
+fulltext_had_family <- tidy_had_1848 %>%
+  anti_join(stopord_1800) %>%
+  anti_join(stopword_extra) %>% 
+  group_by(familyId) %>% 
+  summarise(fulltext_org = paste(word, collapse=" "))
+```
+
+#Robust Sentida 
+Helps make sure that sentiment analysis does not fail on long and complicated texts
+```{r}
+robust_sentida <- function(text, output = "mean") {
+  tryCatch(
+    Sentida::sentida(text, output = output),
+    error = function(e) NA_real_)}
+```
+
+#Split-sentida
+Due to complication with long historical text, sentida can freeze and this function helps split the text into chunks and averanges the sentiment
+```{r}
+
+split_sentida <- function(text) {
+  
+  words <- unlist(strsplit(text, " "))
+  
+ 
+  chunks <- split(words, ceiling(seq_along(words) / 3000))
+  
+  
+  scores <- map_dbl(chunks, ~ robust_sentida(paste(.x, collapse = " ")))
+  
+  
+  mean(scores, na.rm = TRUE)}
+
+
+
+```
+
+#Sentiment per newspaper 
+Shows how the newspapers framed the war emotionally. 
+```{r}
+sentiment_cph_family <- fulltext_cph_family %>% 
+  mutate(fulltext_sentiment = map_dbl(fulltext_org, split_sentida))
+
+sentiment_had_family <- fulltext_had_family %>% 
+  mutate(fulltext_sentiment = map_dbl(fulltext_org, split_sentida))
+
+
+```
+
+#Sentiment per article
+Shows the variation between the cities 
+```{r}
+sentiment_cph <- fulltext_cph %>% 
+  mutate(fulltext_sentiment = map_dbl(fulltext_stopwords, robust_sentida))
+
+sentiment_had <- fulltext_had %>% 
+  mutate(fulltext_sentiment = map_dbl(fulltext_stopwords, robust_sentida))
+
+
+```
+
+#Join sentiment back to metadata 
+Allows plotting the sentiment over time
+```{r}
+sentiments_cph_1848 <- cph_1848 %>% 
+  left_join(sentiment_cph, by="recordID")
+
+sentiments_had_1848 <- had_1848 %>% 
+  left_join(sentiment_had, by="recordID")
+
+
+
+```
+
+#Convert timestamp to date
+```{r}
+sentiments_cph_1848 <- sentiments_cph_1848 %>% 
+  mutate(timestamp = as.Date(timestamp))
+
+sentiments_had_1848 <- sentiments_had_1848 %>% 
+  mutate(timestamp = as.Date(timestamp))
+
+
+```
+
+#Remove missing sentiment
+```{r}
+sentiments_cph_1848_clean <- sentiments_cph_1848 %>% 
+  filter(!is.na(fulltext_sentiment))
+
+sentiments_had_1848_clean <- sentiments_had_1848 %>% 
+  filter(!is.na(fulltext_sentiment))
+
+```
+
+#Sentiment summary 
+Provides a numerical comparison between the 2 cities 
+```{r}
+sentiment_summary_1848 <- tibble(
+  city = c("Copenhagen", "Haderslev"),
+  mean_sentiment = c(
+    mean(sentiments_cph_1848_clean$fulltext_sentiment, na.rm = TRUE),
+    mean(sentiments_had_1848_clean$fulltext_sentiment, na.rm = TRUE)
+  ),
+  median_sentiment = c(
+    median(sentiments_cph_1848_clean$fulltext_sentiment, na.rm = TRUE),
+    median(sentiments_had_1848_clean$fulltext_sentiment, na.rm = TRUE)
+  ),
+  min_sentiment = c(
+    min(sentiments_cph_1848_clean$fulltext_sentiment, na.rm = TRUE),
+    min(sentiments_had_1848_clean$fulltext_sentiment, na.rm = TRUE)
+  ),
+  max_sentiment = c(
+    max(sentiments_cph_1848_clean$fulltext_sentiment, na.rm = TRUE),
+    max(sentiments_had_1848_clean$fulltext_sentiment, na.rm = TRUE)
+  ),
+  n_articles = c(
+    nrow(sentiments_cph_1848_clean),
+    nrow(sentiments_had_1848_clean)))
+
+```
+
+```{r}
+sentiment_summary_1848
+
+
+```
+
+```{r}
+knitr::kable(sentiment_summary_1848, digits = 3)
+
+```
+
+#Sentiment over time - Copenhagen  
+```{r}
+ggplot(sentiments_cph_1848_clean,
+       aes(x = timestamp, y = fulltext_sentiment, col = familyId)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+#Sentiment over time - Haderslev 
+```{r}
+
+ggplot(sentiments_had_1848_clean,
+       aes(x = timestamp, y = fulltext_sentiment, col = familyId)) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+#Combinedsentiment plot
+Directly compares the tone between the 2 cities
+```{r}
+sentiments_cph_1848_clean$city <- "Copenhagen"
+sentiments_had_1848_clean$city <- "Haderslev"
+
+combined_sentiments_1848 <- bind_rows(
+  sentiments_cph_1848_clean,
+  sentiments_had_1848_clean)
+```
+Continuation 
+```{r}
+ggplot(combined_sentiments_1848,
+       aes(x = timestamp, y = fulltext_sentiment, col = familyId)) +
+  geom_point(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Sentiment over time – newspapers in Copenhagen and Haderslev (1848)",
+       x = "Dato",
+       y = "Sentiment",
+       color = "Avis (familyId)")
+```
+
+
